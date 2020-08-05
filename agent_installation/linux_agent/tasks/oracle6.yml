@@ -1,0 +1,173 @@
+---
+
+- name: Copying Teanble package to target folder
+  copy:
+    src: Linux/Nessus/Rhel6-CentOs6-Oel-6/NessusAgent-7.4.3-es6.x86_64.rpm
+    dest: /opt/NessusAgent-7.4.3-es6.x86_64.rpm
+  become: yes
+  become_method: sudo
+
+- name: Installing package
+  shell: rpm -ivh /opt/NessusAgent-7.4.3-es6.x86_64.rpm
+  ignore_errors: true
+  become: yes
+  become_method: sudo
+
+- name: Starting Service
+  shell: /sbin/service nessusagent start
+  become: yes
+  become_method: sudo
+  ignore_errors: true
+
+- name: Registering
+  shell: /opt/nessus_agent/sbin/nessuscli agent link --key=ba49db59ceb14e9f5b409eb191000e8cc97cc1beec4bd3cccdb53f55a75a740f --host=cloud.tenable.com --port=443
+  ignore_errors: true
+  become: yes
+  become_method: sudo
+
+- name: Checking status
+  shell: service nessusagent status
+  register: status
+  ignore_errors: true
+
+- name: Copying Splunk package to target folder
+  copy:
+    src: Linux/Splunk/splunkforwarder-8.0.0-1357bef0a7f6-linux-2.6-x86_64.rpm
+    dest: /opt/splunkforwarder-8.0.0-1357bef0a7f6-linux-2.6-x86_64.rpm
+
+- name: Copying Biogen deployment config package to target folder
+  copy:
+    src: Linux/Splunk/biogen_all_deploymentclient.tgz
+    dest: /opt/biogen_all_deploymentclient.tgz
+
+- name: Installing package
+  yum:
+    name: /opt/splunkforwarder-8.0.0-1357bef0a7f6-linux-2.6-x86_64.rpm
+    state: present
+#  ignore_errors: true
+  become: yes
+  become_method: sudo
+
+- name: Adding Config package to splunk folder
+  shell: tar -xvf /opt/biogen_all_deploymentclient.tgz -C /opt/splunkforwarder/etc/apps/
+  become: yes
+  become_method: sudo
+
+#- name: CHOWN Directory
+#  become: yes
+#  become_method: sudo
+#  shell: chown -R splunk:splunk /opt/splunkforwarder
+
+- name: Start Splunk Service
+  shell: /opt/splunkforwarder/bin/./splunk start --accept-license --answer-yes --auto-ports --no-prompt
+  become: yes
+  become_method: sudo
+
+- name: Enable Boot start
+  shell: /opt/splunkforwarder/bin/splunk enable boot-start
+  become: yes
+  become_method: sudo
+  ignore_errors: true
+
+- name: Checking status
+  shell: /opt/splunkforwarder/bin/splunk status
+  register: status1
+  become: yes
+  become_method: sudo
+
+- name: Checking if Teanable Agent is installed or not
+  shell: "rpm -qa | grep -i nessusagent"
+  register: tenable_stat
+  become: true
+  ignore_errors: true
+
+- name: Checking if Splunk Agent is installed or not
+  shell: "rpm -qa | grep -i splunk"
+  register: splunk_stat
+  become: true
+  ignore_errors: true
+
+- debug:
+    msg: "Tenable Agent is not installed"
+  when: tenable_stat.rc != 0
+
+- debug:
+    msg: "Splunk Agent is not installed"
+  when: splunk_stat.rc != 0
+
+- debug:
+    msg: "Tenable Agent is successfully installed"
+  when: tenable_stat.rc == 0
+
+- debug:
+    msg: "Splunk Agent is successfully installed"
+  when: splunk_stat.rc == 0
+
+- name: Checking whether Snare exists
+  shell: "rpm -qa | grep -i auditd*"
+  register: snare
+  become: true
+  ignore_errors: true
+
+- name: Uninstalling snare
+  yum:
+    name: auditd*
+    state: absent
+  when: snare.rc == 0
+
+- name: Checking whether Qualys Agent exists
+  shell: "rpm -qa | grep -i qualys*"
+  register: qualys
+  become: true
+  ignore_errors: true
+
+- name: Uninstalling qualys
+  shell: rpm -e "{{ qualys.stdout }}"
+  when: qualys.rc == 0
+  become: yes
+  become_method: sudo
+
+- name: Checking status
+  shell: /opt/nessus_agent/sbin/nessuscli agent status
+  register: status
+  become: yes
+  become_method: sudo
+
+- name: Gathering hostname of server
+  shell: echo $HOSTNAME
+  register: host_name
+  become: yes
+
+- name: checking port 8089
+  shell: ss -ta | grep 8089
+  register: port
+  become: yes
+
+- name: entry for CSV
+  lineinfile:
+    path: '/home/schopra1/installation_report.csv'
+    line: "{{ ansible_default_ipv4.address }},{{ host_name.stdout }},{{ ansible_distribution }}Linux,Tenable,7.4.3,Successful,{{ status.stdout_lines[0] }},NA,{{ ansible_date_time.date }},{{ ansible_date_time.time }}"
+  when: tenable_stat.rc == 0 and status.rc == 0
+  delegate_to: localhost
+
+- name: entry for CSV
+  lineinfile:
+    path: '/home/schopra1/failed_installation_report.csv'
+    line: "{{ ansible_default_ipv4.address }},{{ host_name.stdout }},{{ ansible_distribution }}Linux,Tenable,None,Not Installed,Agent not linked,NA,{{ ansible_date_time.date }},{{ ansible_date_time.time }}"
+  when: tenable_stat.rc == 0 and status.rc != 0
+  delegate_to: localhost
+
+- name: entry for CSV
+  lineinfile:
+    path: '/home/schopra1/installation_report.csv'
+    line: "{{ ansible_default_ipv4.address }},{{ host_name.stdout }},{{ ansible_distribution }}Linux,Splunk,8.0.0,Successful,{{ status1.stdout_lines[0] }},{{ port.stdout | replace(' ','') }},{{ ansible_date_time.date }},{{ ansible_date_time.time }}"
+  when: splunk_stat.rc == 0 and status1.rc == 0
+  delegate_to: localhost
+
+- name: entry for CSV
+  lineinfile:
+    path: '/home/schopra1/failed_installation_report.csv'
+    line: "{{ ansible_default_ipv4.address }},{{ host_name.stdout }},{{ ansible_distribution }}Linux,Splunk,None,Not Installed,{{ status1.stdout_lines[0] }},NA,{{ ansible_date_time.date }},{{ ansible_date_time.time }}"
+  when: splunk_stat.rc == 0 and status1.rc != 0
+  delegate_to: localhost
+
