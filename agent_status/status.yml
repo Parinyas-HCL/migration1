@@ -12,7 +12,7 @@
     - add_host:
         host: "{{ item.item }}"
         ansible_user: schopra1
-        ansible_ssh_private_key_file: 
+        ansible_ssh_private_key_file:
         groups: linux
       when: item.rc == 0
       with_items: "{{ telnet.results }}"
@@ -20,7 +20,7 @@
       run_once: true
     - add_host:
         host: "{{ item.item }}"
-        ansible_user: schopra1
+        ansible_user:
         ansible_port: '5986'
         ansible_password: 
         ansible_connection: winrm
@@ -38,34 +38,24 @@
 - hosts: linux
   become: true
   strategy: free
-  tasks:
-  - block:
-    - name: Checking port 8089 linux
-      wait_for:
-        host: 10.240.17.51
-        port: 8089
-        timeout: 30
-    - name: Checking port 9997 linux
-      wait_for:
-        host: 10.240.17.54
-        port: 9997
-        timeout: 30
-        #state: present
+  roles:
+  - linux_agent
 
 - hosts: win
-  become: true
   strategy: free
-  tasks:
-  - block:
-    - name: Checking port 9997 windows
-      win_wait_for:
-        host: 10.240.17.51
-        port: 8089
-        timeout: 30
-  
-    - name: Checking port 9997 windows
-      win_wait_for:
-        host: 10.240.17.54
-        port: 9997
-        timeout: 30        
+  roles:
+  - win_agent
 
+- name: sending agent installation report thorugh mail
+  hosts: localhost
+  tasks:
+  - name: Agent installation report
+    mail:
+      host: 127.0.0.1
+      port: 25
+      subject: Status for linux servers
+      body: "This is auto generated report for Agents installation."
+      attach:
+      from: stuti.chopra@biogen.com
+      to:
+      - Stuti Chopra <stuti.chopra@biogen.com>
